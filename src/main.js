@@ -1,115 +1,34 @@
-const modules = [
-  {group:"Utama",items:[["dashboard","Dashboard","⌂"]]},
-  {group:"Program",items:[["program-tahunan","Program Tahunan","▣"],["program-semester","Program Semester","▤"],["agenda","Agenda Kerja Konselor","◷"],["jadwal","Jadwal Konselor","▦"]]},
-  {group:"Kegiatan Pelayanan",items:[["konseli","Daftar Konseli","♙"],["permasalahan","Kebutuhan & Permasalahan","!"]]},
-  {group:"Aktivitas Pelayanan BK",items:[["asesmen","Pemahaman / Asesmen","◎"],["layanan","Pelayanan Langsung","◉"],["tindak-lanjut","Pelayanan Tindak Lanjut","↗"]]},
-  {group:"Pengembangan Diri",items:[["pengembangan","MGBK & Pengembangan Kompetensi","★"]]},
-  {group:"Pelaporan",items:[["pelaporan","Pelaporan","▥"]]},
-  {group:"Evaluasi",items:[["evaluasi","Evaluasi","◒"]]},
-  {group:"Dokumen & Pengaturan",items:[["dokumen","Dokumen / File Manager","▤"],["pengaturan","Pengaturan","⚙"]]}
-];
+import { supabase, isSupabaseConfigured } from "./lib/supabase.js";
+import { signIn, signOut, getSession } from "./lib/auth.js";
+import { getProfile, getSchoolProfile, getCounselorProfile, logActivity } from "./lib/api.js";
 
-const state = {
-  page: localStorage.getItem("bk-page") || "dashboard",
-  dark: localStorage.getItem("bk-dark") === "1",
-  search: ""
-};
+const modules=[["Utama",[["dashboard","Dashboard"]]],["Program",[["program-tahunan","Program Tahunan"],["program-semester","Program Semester"],["agenda","Agenda Kerja Konselor"],["jadwal","Jadwal Kegiatan Konselor"]]],["Kegiatan Pelayanan",[["konseli","Daftar Konseli"],["permasalahan","Kebutuhan & Permasalahan Konseli"]]],["Aktivitas Pelayanan BK",[["asesmen","Pemahaman / Asesmen"],["layanan","Pelayanan Langsung"],["tindak-lanjut","Pelayanan Tindak Lanjut"]]],["Pengembangan Diri",[["pengembangan","MGBK & Pengembangan Kompetensi"]]],["Pelaporan",[["pelaporan","Pelaporan"]]],["Evaluasi",[["evaluasi","Evaluasi"]]],["Dokumen",[["dokumen","Dokumen / File Manager"]]],["Pengaturan",[["profil-guru","Profil Guru BK"],["profil-sekolah","Profil Sekolah"],["pengaturan","Pengaturan"]]]];
+const roleLabel={administrator:"Administrator",guru_bk:"Guru BK",koordinator_bk:"Koordinator BK",kepala_sekolah:"Kepala Sekolah"};
+const allowed={administrator:["*"],guru_bk:["dashboard","program-tahunan","program-semester","agenda","jadwal","konseli","permasalahan","asesmen","layanan","tindak-lanjut","pengembangan","pelaporan","evaluasi","dokumen","profil-guru"],koordinator_bk:["dashboard","program-tahunan","program-semester","agenda","jadwal","konseli","permasalahan","asesmen","layanan","tindak-lanjut","pengembangan","pelaporan","evaluasi","dokumen"],kepala_sekolah:["dashboard","program-tahunan","program-semester","agenda","jadwal","pelaporan","evaluasi","dokumen"]};
+let session=null,profile=null,school=null,counselor=null,page=location.hash.slice(1)||"dashboard";
 
-const icon = (symbol) => '<span class="nav-icon">'+symbol+'</span>';
-
-function sidebar(){
-  return `
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-mark">BK</div>
-        <div><strong>SIM BK</strong><small>SMP Negeri 11 Palu</small></div>
-      </div>
-      <div class="profile-mini">
-        <div class="avatar">NU</div>
-        <div><strong>Nurhidayat Usman</strong><small>Guru Bimbingan & Konseling</small></div>
-      </div>
-      <nav>
-        ${modules.map(g=>`<div class="nav-group"><div class="nav-label">${g.group}</div>${g.items.map(([id,label,s])=>`<button class="nav-item ${state.page===id?"active":""}" data-page="${id}">${icon(s)}<span>${label}</span></button>`).join("")}</div>`).join("")}
-      </nav>
-      <div class="privacy">🔒 <span>Data konseli dan catatan konseling bersifat rahasia.</span></div>
-    </aside>`;
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));
+function toast(msg){const e=document.createElement("div");e.className="toast";e.textContent=msg;document.body.append(e);setTimeout(()=>e.remove(),2600)}
+function can(p){return profile&&(allowed[profile.role]?.includes("*")||allowed[profile.role]?.includes(p))}
+function title(){for(const [,items] of modules){const x=items.find(a=>a[0]===page);if(x)return x[1]}return"Dashboard"}
+function login(){document.querySelector("#app").innerHTML=`
+<div class="login-page"><div class="login-card"><div class="brand-center"><div class="brand-mark">BK</div><h1>SISTEM INFORMASI<br>BIMBINGAN DAN KONSELING</h1><p>SMP Negeri 11 Palu</p></div>
+<form id="login-form"><label>Email/Username<input name="email" type="email" required placeholder="nama@email.com"></label><label>Password<div class="password"><input id="pw" name="password" type="password" required minlength="8" placeholder="Masukkan password"><button type="button" id="showpw">Tampilkan</button></div></label><label class="remember"><input type="checkbox" name="remember"> Remember me <a href="#" id="forgot">Lupa Password?</a></label><button class="primary full" type="submit">Login</button><div id="login-error" class="error"></div></form>
+<div class="login-note">🔒 Akses terbatas. Data BK bersifat rahasia.</div></div></div>`;
+document.querySelector("#showpw").onclick=()=>{const x=document.querySelector("#pw");x.type=x.type==="password"?"text":"password";document.querySelector("#showpw").textContent=x.type==="password"?"Tampilkan":"Sembunyikan"};
+document.querySelector("#forgot").onclick=e=>{e.preventDefault();toast("Gunakan fitur reset password Supabase Auth yang dikonfigurasi administrator.")};
+document.querySelector("#login-form").onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);const b=e.currentTarget.querySelector("button[type=submit]");b.disabled=true;try{const {data,error}=await signIn(f.get("email"),f.get("password"));if(error)throw error;session=data.session;await loadUser();toast("Login berhasil");render()}catch(err){document.querySelector("#login-error").textContent=err.message||"Login gagal."}finally{b.disabled=false}};
 }
-
-function header(){
-  return `
-    <header class="topbar">
-      <button id="menu" class="icon-btn">☰</button>
-      <div class="crumb">Sistem Informasi BK <span>/</span> <b>${pageTitle()}</b></div>
-      <div class="top-actions">
-        <label class="search"><span>⌕</span><input id="global-search" placeholder="Cari siswa, kegiatan, dokumen..." value="${state.search}"></label>
-        <button id="theme" class="icon-btn" title="Mode gelap">${state.dark?"☀":"◐"}</button>
-        <button class="user-chip"><span class="avatar sm">NU</span><span>Nurhidayat Usman</span></button>
-      </div>
-    </header>`;
-}
-
-function pageTitle(){
-  const all=modules.flatMap(g=>g.items);
-  return (all.find(x=>x[0]===state.page)||["","Dashboard"])[1];
-}
-
-function stat(label,value,change,cls){
-  return `<div class="stat-card"><div class="stat-top"><span>${label}</span><b class="stat-icon ${cls}">●</b></div><strong class="stat-value">${value}</strong><small>${change}</small></div>`;
-}
-
-function dashboard(){
-  const students=Number(localStorage.getItem("bk-students")||0);
-  const cases=Number(localStorage.getItem("bk-cases")||0);
-  const services=Number(localStorage.getItem("bk-services")||0);
-  return `
-  <section class="page">
-    <div class="welcome"><div><p class="eyebrow">DASHBOARD BK</p><h1>Selamat datang, Bapak Hidayat 👋</h1><p>Kelola program dan layanan Bimbingan dan Konseling secara terstruktur dan terdokumentasi.</p></div><button class="primary" data-page="konseli">＋ Tambah Konseli</button></div>
-    <div class="profile-banner">
-      <div class="avatar xl">NU</div><div class="profile-text"><span>Guru Bimbingan dan Konseling</span><h2>Nurhidayat Usman, S.Pd</h2><p>SMP Negeri 11 Palu · Tahun Pelajaran 2026/2027</p></div>
-      <button class="secondary" data-page="pengaturan">Edit Profil</button>
-    </div>
-    <div class="stats-grid">
-      ${stat("Jumlah Konseli",students,"Data siswa asuh","blue")}${stat("Jumlah Kasus",cases,"Kebutuhan & permasalahan","orange")}${stat("Jumlah Layanan",services,"Layanan BK tercatat","green")}${stat("Asesmen","0","Sosiometri & AKPD","purple")}${stat("Kegiatan","0","Agenda terlaksana","teal")}${stat("Laporan","0","Bulanan / semester / tahunan","red")}${stat("Dokumen","0","Arsip digital","gray")}
-    </div>
-    <div class="grid-2">
-      <div class="panel"><div class="panel-head"><div><h3>Ringkasan Pelayanan</h3><small>Aktivitas BK tahun pelajaran berjalan</small></div><button class="link-btn" data-page="pelaporan">Lihat laporan →</button></div><div class="empty-chart"><div class="bars"><i style="height:45%"></i><i style="height:70%"></i><i style="height:55%"></i><i style="height:85%"></i><i style="height:62%"></i><i style="height:92%"></i><i style="height:74%"></i></div><div class="chart-labels"><span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>Mei</span><span>Jun</span><span>Jul</span></div></div></div>
-      <div class="panel"><div class="panel-head"><div><h3>Akses Cepat</h3><small>Menu yang sering digunakan</small></div></div><div class="quick-grid"><button data-page="konseli">👥<b>Daftar Konseli</b><small>Kelola siswa asuh</small></button><button data-page="asesmen">◎<b>Asesmen</b><small>Sosiometri & AKPD</small></button><button data-page="layanan">◉<b>Pelayanan</b><small>Catat layanan BK</small></button><button data-page="jadwal">▦<b>Jadwal</b><small>Agenda konselor</small></button></div></div>
-    </div>
-    <div class="panel"><div class="panel-head"><div><h3>Gambaran Umum Sekolah</h3><small>Informasi yang dapat dilengkapi melalui Pengaturan</small></div><button class="secondary" data-page="pengaturan">Kelola Profil</button></div><div class="school-grid"><div><span>Nama Sekolah</span><b>SMP Negeri 11 Palu</b></div><div><span>NPSN</span><b>Belum diisi</b></div><div><span>Kepala Sekolah</span><b>Belum diisi</b></div><div><span>Jumlah Siswa</span><b>Belum diisi</b></div><div><span>Jumlah Rombel</span><b>Belum diisi</b></div><div><span>Alamat</span><b>Belum diisi</b></div></div></div>
-  </section>`;
-}
-
-function generic(){
-  const descriptions={
-    "program-tahunan":"Kelola program tahunan BK, tujuan, bidang layanan, sasaran, materi, waktu, indikator, dan dokumen.",
-    "program-semester":"Kelola program semester ganjil dan genap beserta alokasi waktu, metode, media, dan dokumen.",
-    agenda:"Catat agenda kerja konselor, hasil kegiatan, tindak lanjut, dan bukti kegiatan.",
-    jadwal:"Atur jadwal mingguan dan harian konselor dalam bentuk terstruktur.",
-    konseli:"Kelola database siswa asuh dan riwayat layanan BK secara terpusat.",
-    permasalahan:"Catat kebutuhan dan permasalahan konseli berdasarkan kategori serta tindak lanjut.",
-    asesmen:"Kelola Sosiometri, AKPD, kunjungan rumah, catatan anekdot, dan konferensi kasus.",
-    layanan:"Kelola konseling individual, konseling kelompok, konsultasi, bimbingan, dan referal.",
-    "tindak-lanjut":"Kelola papan bimbingan, kotak masalah, biblio konseling, audio visual, dan media cetak.",
-    pengembangan:"Dokumentasikan MGBK, pelatihan, IHT, ToT, seminar, webinar, workshop, dan diklat.",
-    pelaporan:"Buat dan arsipkan laporan bulanan, semester, dan tahunan berdasarkan data sistem.",
-    evaluasi:"Evaluasi program, proses/produk BK, kepuasan konseli, keberhasilan layanan, dan tindak lanjut.",
-    dokumen:"Kelola seluruh dokumen dan berkas BK secara terpusat.",
-    pengaturan:"Kelola profil sekolah, profil Guru BK, pengguna, keamanan, dan backup data."
-  };
-  return `<section class="page"><div class="page-heading"><div><p class="eyebrow">MODUL BK</p><h1>${pageTitle()}</h1><p>${descriptions[state.page]||"Kelola data dan administrasi Bimbingan dan Konseling."}</p></div><button class="primary" id="add-record">＋ Tambah Data</button></div><div class="panel"><div class="toolbar"><input class="field" placeholder="Cari data..."><select class="field"><option>Semua status</option><option>Aktif</option><option>Selesai</option><option>Arsip</option></select><button class="secondary">Filter</button><button class="secondary">Export</button></div><div class="table-empty"><div>▤</div><h3>Belum ada data</h3><p>Tambahkan data pertama untuk modul ini.</p><button class="primary" id="empty-add">＋ Tambah Data</button></div></div></section>`;
-}
-
-function app(){
-  document.body.className=state.dark?"dark":"";
-  document.querySelector("#app").innerHTML=`<div class="shell">${sidebar()}<main class="main">${header()}<div class="content">${state.page==="dashboard"?dashboard():generic()}</div></main></div>`;
-  bind();
-}
-
-function bind(){
-  document.querySelectorAll("[data-page]").forEach(b=>b.onclick=()=>{state.page=b.dataset.page;localStorage.setItem("bk-page",state.page);app()});
-  document.querySelector("#theme")?.addEventListener("click",()=>{state.dark=!state.dark;localStorage.setItem("bk-dark",state.dark?"1":"0");app()});
-  document.querySelector("#global-search")?.addEventListener("input",e=>state.search=e.target.value);
-  document.querySelector("#menu")?.addEventListener("click",()=>document.body.classList.toggle("sidebar-open"));
-  document.querySelectorAll("#add-record,#empty-add").forEach(b=>b.onclick=()=>alert("Form CRUD modul akan tersedia pada tahap pengembangan modul."));
-}
-app();
+function sidebar(){return `<aside class="sidebar"><div class="brand"><div class="brand-mark">BK</div><div><strong>SIM BK</strong><small>SMP Negeri 11 Palu</small></div></div><div class="profile-mini"><div class="avatar">NU</div><div><strong>${esc(profile?.full_name)}</strong><small>${esc(roleLabel[profile?.role])}</small></div></div><nav>${modules.map(([g,items])=>`<div class="nav-group"><div class="nav-label">${g}</div>${items.filter(x=>can(x[0])||x[0]==="dashboard").map(x=>`<button class="nav-item ${page===x[0]?"active":""}" data-page="${x[0]}">▣ <span>${x[1]}</span></button>`).join("")}</div>`).join("")}</nav><div class="privacy">🔒 Data konseli dan catatan konseling bersifat rahasia.</div></aside>`}
+function header(){return `<header class="topbar"><button id="menu" class="icon-btn">☰</button><div class="crumb">Sistem Informasi BK / <b>${title()}</b></div><div class="top-actions"><span class="role-pill">${roleLabel[profile?.role]||""}</span><button id="logout" class="secondary">Logout</button></div></header>`}
+function dashboard(){return `<section class="page"><div class="welcome"><div><p class="eyebrow">DASHBOARD BK</p><h1>Selamat Datang, ${esc(profile?.full_name||"Pengguna")}</h1><p>Guru Bimbingan dan Konseling · SMP Negeri 11 Palu · Tahun Pelajaran 2026/2027</p></div></div><div class="profile-banner"><div class="avatar xl">NU</div><div class="profile-text"><span>Guru Bimbingan dan Konseling</span><h2>${esc(counselor?.full_name||"Nurhidayat Usman, S.Pd")}</h2><p>SMP Negeri 11 Palu</p></div></div><div class="stats-grid">${["Total Konseli","Permasalahan Siswa","Layanan BK","Asesmen","Program","Kegiatan","Laporan","Dokumen"].map(x=>`<div class="stat-card"><span>${x}</span><strong>0</strong><small>Belum ada data</small></div>`).join("")}</div><div class="grid-2"><div class="panel"><h3>Jumlah Konseli Berdasarkan Kelas</h3><div class="empty-state">Belum ada data untuk ditampilkan.</div></div><div class="panel"><h3>Kebutuhan/Permasalahan Siswa</h3><div class="empty-state">Belum ada data untuk ditampilkan.</div></div></div><div class="panel"><h3>Aktivitas Pelayanan BK</h3><div class="empty-state">Belum ada data untuk ditampilkan.</div></div><div class="panel"><h3>Profil Sekolah</h3><div class="school-grid"><div><span>Nama</span><b>${esc(school?.school_name||"SMP Negeri 11 Palu")}</b></div><div><span>Jenjang</span><b>${esc(school?.school_level||"Sekolah Menengah Pertama")}</b></div><div><span>Kota</span><b>${esc(school?.city||"Palu")}</b></div><div><span>Provinsi</span><b>${esc(school?.province||"Sulawesi Tengah")}</b></div></div></div></section>`}
+function profilePage(kind){const c=kind==="guru";const d=c?counselor||{}:school||{};return `<section class="page"><div class="page-heading"><div><p class="eyebrow">PENGATURAN PROFIL</p><h1>${c?"Profil Guru BK":"Profil SMP Negeri 11 Palu"}</h1><p>Data tersimpan pada PostgreSQL/Supabase.</p></div></div><div class="panel"><form id="profile-form" data-kind="${kind}" class="form-grid">${(c?[["full_name","Nama",d.full_name||"Nurhidayat Usman, S.Pd"],["title","Gelar",d.title||"S.Pd"],["nip","NIP",d.nip],["nuptk","NUPTK",d.nuptk],["position","Jabatan",d.position||"Guru Bimbingan dan Konseling"],["education","Pendidikan",d.education],["email","Email",d.email],["phone","Nomor HP",d.phone],["professional_description","Deskripsi profesional",d.professional_description]]:[["school_name","Nama sekolah",d.school_name||"SMP Negeri 11 Palu"],["npsn","NPSN",d.npsn],["school_level","Jenjang",d.school_level||"Sekolah Menengah Pertama"],["address","Alamat",d.address],["village","Kelurahan/Desa",d.village],["district","Kecamatan",d.district],["city","Kota",d.city||"Palu"],["province","Provinsi",d.province||"Sulawesi Tengah"],["postal_code","Kode Pos",d.postal_code],["principal_name","Kepala Sekolah",d.principal_name],["phone","Telepon",d.phone],["email","Email",d.email],["website","Website",d.website],["vision","Visi",d.vision],["mission","Misi",d.mission],["description","Gambaran umum",d.description]]).map(([n,l,v])=>`<label>${l}<input name="${n}" value="${esc(v)}"></label>`).join("")}<div><button class="primary" type="submit">Simpan Perubahan</button></div></form></div></section>`}
+function docs(){return `<section class="page"><div class="page-heading"><div><p class="eyebrow">DOKUMEN</p><h1>Dokumen / File Manager</h1><p>File disimpan pada private Storage bucket dan metadata pada database.</p></div></div><div class="panel"><form id="upload-form"><div class="form-grid"><label>Judul<input name="title" required></label><label>Kategori<select name="category"><option>Profil</option><option>Program</option><option>Konseli</option><option>Asesmen</option><option>Pelayanan</option><option>Pengembangan Diri</option><option>Pelaporan</option><option>Evaluasi</option><option>Lainnya</option></select></label><label>File<input name="file" type="file" required accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png,.mp4,.mp3"></label></div><button class="primary" type="submit">Upload Dokumen</button></form><div id="doc-list" class="doc-list">Memuat dokumen...</div></div></section>`}
+function generic(){return `<section class="page"><div class="page-heading"><div><p class="eyebrow">MODUL BK</p><h1>${title()}</h1><p>Modul terstruktur dan siap diintegrasikan pada Tahap 3.</p></div></div><div class="panel"><div class="empty-state"><h3>Modul sedang dalam pengembangan.</h3><p>Struktur navigasi sudah tersedia tanpa membuat data fiktif.</p></div></div></section>`}
+function render(){document.body.className="";document.querySelector("#app").innerHTML=`<div class="shell">${sidebar()}<main class="main">${header()}<div class="content">${page==="dashboard"?dashboard():page==="profil-guru"?profilePage("guru"):page==="profil-sekolah"?profilePage("sekolah"):page==="dokumen"?docs():generic()}</div></main></div>`;bind()}
+async function loadUser(){profile=await getProfile(session.user.id);school=await getSchoolProfile().catch(()=>null);counselor=await getCounselorProfile(session.user.id).catch(()=>null);if(!can(page))page="dashboard";await logActivity(session.user.id,"Login","Authentication","Pengguna berhasil login.")}
+function bind(){document.querySelectorAll("[data-page]").forEach(b=>b.onclick=()=>{page=b.dataset.page;location.hash=page;render()});document.querySelector("#logout")?.addEventListener("click",async()=>{await logActivity(session.user.id,"Logout","Authentication","Pengguna logout.");await signOut();session=null;profile=null;login()});document.querySelector("#menu")?.addEventListener("click",()=>document.body.classList.toggle("sidebar-open"));document.querySelector("#profile-form")?.addEventListener("submit",saveProfile);document.querySelector("#upload-form")?.addEventListener("submit",uploadDocument);if(page==="dokumen")loadDocuments()}
+async function saveProfile(e){e.preventDefault();const f=Object.fromEntries(new FormData(e.currentTarget));try{if(e.currentTarget.dataset.kind==="guru"){const {error}=await supabase.from("counselor_profile").upsert({...f,user_id:session.user.id},{onConflict:"user_id"});if(error)throw error;counselor=await getCounselorProfile(session.user.id);await logActivity(session.user.id,"Edit data","Profil Guru BK","Profil Guru BK diperbarui.")}else{if(!can("profil-sekolah"))throw new Error("Anda tidak memiliki izin.");const id=school.id;const {error}=await supabase.from("school_profile").update(f).eq("id",id);if(error)throw error;school=await getSchoolProfile();await logActivity(session.user.id,"Edit data","Profil Sekolah","Profil sekolah diperbarui.")}toast("Profil berhasil diperbarui.");render()}catch(err){toast(err.message||"Gagal menyimpan data.")}}
+async function uploadDocument(e){e.preventDefault();const f=new FormData(e.currentTarget),file=f.get("file");if(!file||file.size>20*1024*1024){toast("File wajib diisi dan maksimal 20 MB.");return}try{const path=session.user.id+"/"+crypto.randomUUID()+"-"+file.name;const {error}=await supabase.storage.from("bk-documents").upload(path,file,{upsert:false});if(error)throw error;const {data}=supabase.storage.from("bk-documents").getPublicUrl(path);const {error:dbError}=await supabase.from("documents").insert({title:f.get("title"),file_name:file.name,file_url:path,file_type:file.type||"application/octet-stream",file_size:file.size,category:f.get("category"),uploaded_by:session.user.id});if(dbError)throw dbError;await logActivity(session.user.id,"Upload dokumen","Dokumen","Dokumen diunggah: "+file.name);e.currentTarget.reset();toast("Dokumen berhasil diunggah.");loadDocuments()}catch(err){toast(err.message||"Upload gagal.")}}
+async function loadDocuments(){const box=document.querySelector("#doc-list");if(!box)return;const {data,error}=await supabase.from("documents").select("*").order("created_at",{ascending:false});if(error){box.textContent=error.message;return}box.innerHTML=data.length?data.map(d=>`<div class="doc-row"><div><b>${esc(d.title)}</b><small>${esc(d.file_name)} · ${Math.ceil(d.file_size/1024)} KB · ${esc(d.category)}</small></div><button class="secondary" data-doc="${d.id}">Download</button></div>`).join(""):`<div class="empty-state">Belum ada dokumen.</div>`;box.querySelectorAll("[data-doc]").forEach(b=>b.onclick=async()=>{const d=data.find(x=>x.id===b.dataset.doc);const {data:u,error}=await supabase.storage.from("bk-documents").createSignedUrl(d.file_url,300);if(error)toast(error.message);else{await logActivity(session.user.id,"Download dokumen","Dokumen","Dokumen diunduh: "+d.file_name,d.id);window.open(u.signedUrl,"_blank")}})}
+(async()=>{if(!isSupabaseConfigured){document.querySelector("#app").innerHTML=`<div class="setup"><h1>Konfigurasi Supabase diperlukan</h1><p>Aplikasi sudah menggunakan arsitektur database, Auth, RLS, dan Storage nyata. Isi <b>VITE_SUPABASE_URL</b> dan <b>VITE_SUPABASE_ANON_KEY</b>, lalu jalankan database/stage2.sql di Supabase.</p></div>`;return}session=await getSession();if(!session){login();return}try{await loadUser();render()}catch(e){await signOut();login()}})();
