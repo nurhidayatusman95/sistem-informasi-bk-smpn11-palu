@@ -243,3 +243,38 @@ create policy problems_write_confidential on public.student_needs_problems for a
 -- Keep documents tied to Stage 3 records. Metadata remains protected by Stage 2 policies.
 comment on table public.students is 'CONFIDENTIAL: data konseli/siswa asuh.';
 comment on table public.student_needs_problems is 'CONFIDENTIAL: kebutuhan dan permasalahan konseli.';
+
+-- API grants required by Supabase Data API.
+grant select, insert, update, delete on public.annual_programs to authenticated;
+grant select, insert, update, delete on public.semester_programs to authenticated;
+grant select, insert, update, delete on public.counselor_agendas to authenticated;
+grant select, insert, update, delete on public.weekly_schedules to authenticated;
+grant select, insert, update, delete on public.daily_schedules to authenticated;
+grant select, insert, update, delete on public.students to authenticated;
+grant select, insert, update, delete on public.student_needs_problems to authenticated;
+
+-- Tighten Tahap 2 document access for confidential Stage 3 records.
+drop policy if exists documents_read_authorized on public.documents;
+create policy documents_read_authorized on public.documents
+for select to authenticated
+using (
+  public.current_app_role() in ('administrator','guru_bk','koordinator_bk')
+  or (
+    public.current_app_role() = 'kepala_sekolah'
+    and coalesce(related_module,'') not in ('Konseli','Kebutuhan & Permasalahan')
+  )
+);
+
+drop policy if exists bk_documents_read on storage.objects;
+create policy bk_documents_read on storage.objects
+for select to authenticated
+using (
+  bucket_id='bk-documents'
+  and (
+    public.current_app_role() in ('administrator','guru_bk','koordinator_bk')
+    or (
+      public.current_app_role()='kepala_sekolah'
+      and coalesce(metadata->>'related_module','') not in ('Konseli','Kebutuhan & Permasalahan')
+    )
+  )
+);
