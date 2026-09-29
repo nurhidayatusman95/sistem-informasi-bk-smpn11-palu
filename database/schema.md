@@ -1,90 +1,19 @@
-# Kontrak Data Tahap 2
+# Kontrak Data Tahap 2 + Tahap 3
 
-## users
-- id
-- full_name
-- email
-- password/auth reference
-- role
-- phone
-- photo_url
-- is_active
-- created_at
-- updated_at
+Tahap 2 tetap menjadi fondasi. Tahap 3 menambahkan tabel:
+- annual_programs
+- semester_programs
+- counselor_agendas
+- weekly_schedules
+- daily_schedules
+- students (CONFIDENTIAL)
+- student_needs_problems (CONFIDENTIAL)
 
-## school_profile
-- id
-- school_name
-- npsn
-- school_level
-- address
-- village
-- district
-- city
-- province
-- postal_code
-- phone
-- email
-- website
-- principal_name
-- vision
-- mission
-- description
-- school_logo
-- created_at
-- updated_at
+Relasi utama:
+- school_profile -> annual_programs
+- counselor_profile -> annual_programs / agendas / schedules / students / student_needs_problems
+- annual_programs -> semester_programs
+- students -> student_needs_problems
+- documents -> related_module + related_record_id untuk lampiran modul
 
-## counselor_profile
-- id
-- user_id
-- full_name
-- title
-- employee_id
-- nip
-- nuptk
-- position
-- school_id
-- phone
-- email
-- photo_url
-- education
-- competency
-- professional_description
-- created_at
-- updated_at
-
-## documents
-- id
-- title
-- description
-- file_name
-- file_url
-- file_type
-- file_size
-- category
-- subcategory
-- uploaded_by
-- related_module
-- related_record_id
-- created_at
-- updated_at
-
-## activity_logs
-- id
-- user_id
-- action
-- module
-- record_id
-- description
-- ip_address (if available)
-- created_at
-
-## Seed awal
-- SMP Negeri 11 Palu
-- Jenjang: Sekolah Menengah Pertama
-- Kota: Palu
-- Provinsi: Sulawesi Tengah
-- Guru BK: Nurhidayat Usman, S.Pd
-- Jabatan: Guru Bimbingan dan Konseling
-
-Tidak ada data siswa/kasus/layanan fiktif.
+Jalankan `stage3.sql` setelah `stage2.sql`. Migrasi Tahap 3 tidak menghapus atau menggandakan tabel Tahap 2.
