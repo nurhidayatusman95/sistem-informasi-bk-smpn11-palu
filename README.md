@@ -60,3 +60,27 @@ Aplikasi dibangun sebagai sistem yang benar-benar terhubung antara frontend, bac
 - Catatan audit disimpan di `activity_logs`.
 - Statistik dashboard Tahap 2 tetap 0 sampai modul sumber datanya benar-benar dibuat.
 - Data siswa, kasus, layanan, dan asesmen tidak dibuat sebagai dummy.
+
+## Tahap 3 — Program BK dan Konseli
+
+Jalankan `database/stage3.sql` setelah `database/stage2.sql`.
+
+Modul aktif:
+- Program Tahunan
+- Program Semester + relasi Program Tahunan
+- Agenda Kerja Konselor
+- Jadwal Mingguan dan Harian
+- Daftar Konseli / Siswa Asuh
+- Profil Detail Konseli
+- Kebutuhan & Permasalahan Konseli
+- Search/filter
+- CRUD dengan RBAC
+- Upload lampiran ke private Storage
+- Import/Export Excel
+- Template Excel
+- Statistik Dashboard dari database untuk konseli/permasalahan/program/kegiatan/dokumen
+- Audit log
+
+Data siswa dan permasalahan tidak di-seed. Semua angka dashboard membaca database; jika belum ada data nilainya 0.
+
+Data `students` dan `student_needs_problems` diberi RLS confidential. Administrator/Guru BK dapat mengelola; Koordinator BK dapat membaca; Kepala Sekolah tidak diberikan akses ke menu konseli/permasalahan pada tahap ini.
