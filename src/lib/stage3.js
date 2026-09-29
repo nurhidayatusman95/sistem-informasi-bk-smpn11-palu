@@ -32,7 +32,7 @@ export async function uploadRelatedDocument({userId,title,file,category,relatedM
  const allowed=["application/pdf","application/msword","application/vnd.openxmlformats-officedocument.wordprocessingml.document","application/vnd.ms-excel","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","application/vnd.ms-powerpoint","application/vnd.openxmlformats-officedocument.presentationml.presentation","image/jpeg","image/png","video/mp4","audio/mpeg"];
  if(file.type && !allowed.includes(file.type))throw new Error("Format file tidak diperbolehkan.");
  const path=userId+"/"+crypto.randomUUID()+"-"+file.name;
- const {error}=await supabase.storage.from("bk-documents").upload(path,file,{upsert:false});if(error)throw error;
+ const {error}=await supabase.storage.from("bk-documents").upload(path,file,{upsert:false,metadata:{related_module:relatedModule,related_record_id:relatedRecordId||null}});if(error)throw error;
  const {data,error:dbError}=await supabase.from("documents").insert({title,description,file_name:file.name,file_url:path,file_type:file.type||"application/octet-stream",file_size:file.size,category,uploaded_by:userId,related_module:relatedModule,related_record_id:relatedRecordId}).select().single();
  if(dbError){await supabase.storage.from("bk-documents").remove([path]);throw dbError}return data;
 }
